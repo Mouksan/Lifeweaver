@@ -28,6 +28,24 @@ import { renderInfoblock } from './infoblock.js';
 import { PANEL_STYLES, COLOR_SCHEMES, DEFAULT_APPEARANCE, applyAppearanceEverywhere } from './appearance.js';
 import { readImageFile, uploadAvatar } from './avatars.js';
 import { scanFullHistory, estimateHistory } from './history-scan.js';
+import { createQuickbarButton } from './quickbar.js';
+
+// Иконка в быстрых ответах: открывает и закрывает окно Lifeweaver.
+const quickbar = createQuickbarButton({
+    id: 'lw_quickbar',
+    cls: 'lw-qb',
+    icon: 'fa-moon',
+    title: 'Lifeweaver',
+    isWanted: () => getSettings().isEnabled && getSettings().quickbarButton !== false,
+    onClick: async () => {
+        if ($('#lw_modal_overlay').hasClass('lw-open')) {
+            closePanel();
+            return;
+        }
+        await ensurePanelLoaded();
+        openPanel();
+    },
+});
 import { activeComplications, getHealthInfo, TEST_LABELS, EYE_OPTIONS, HAIR_OPTIONS, bodyPoolFor, testReliability } from './health.js';
 import { getSymptoms, getRecommendation, getCycleState, getPregnancySymptoms, isTooEarlyForSymptoms } from './symptoms.js';
 import { updatePromptInjection, buildPrompt } from './prompts.js';
@@ -2285,6 +2303,15 @@ function bindSettingsUI() {
     $enabled.on('change', function () {
         settings.isEnabled = $(this).prop('checked');
         saveSettings();
+        quickbar.sync();
+    });
+
+    const $quickbar = $('#lw_quickbar_toggle');
+    $quickbar.prop('checked', settings.quickbarButton !== false);
+    $quickbar.on('change', function () {
+        settings.quickbarButton = $(this).prop('checked');
+        saveSettings();
+        quickbar.sync();
     });
 
     $('#lw_open_panel').on('click', async () => {
@@ -2354,6 +2381,7 @@ jQuery(async () => {
         const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
         $('#extensions_settings2').append(settingsHtml);
         bindSettingsUI();
+        quickbar.start();
         initAutomation();
         updatePromptInjection();
         injectCustomInfoblockCss();

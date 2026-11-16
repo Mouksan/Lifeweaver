@@ -182,6 +182,8 @@ export const CONTRACEPTION_TYPES = {
 
 export const defaultSettings = {
     isEnabled: true,
+    // Иконка Lifeweaver в панели быстрых ответов
+    quickbarButton: true,
     chatData: {},
     // Длины циклов течки/гона — общие на все ABO-вселенные. Разбивка по видам
     // (у драконов гон может идти иначе, чем у людей) — конструктор кастома.

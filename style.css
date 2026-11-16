@@ -2077,3 +2077,44 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
 #lifeweaver_settings .lw-drawer-btn i {
     opacity: .8;
 }
+
+/* ---------- Кнопка в быстрых ответах (порт из Junket) ---------- */
+
+.lw-qb {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0 !important;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    user-select: none;
+    border-radius: 8px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.lw-qb--no-chat {
+    opacity: 0.4;
+}
+
+.lw-qb--busy {
+    color: var(--SmartThemeQuoteColor);
+    animation: lw-qb-pulse 1.4s ease-in-out infinite;
+    will-change: transform;
+}
+
+@keyframes lw-qb-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lw-qb--busy {
+        opacity: 0.8;
+        animation: none;
+        will-change: auto;
+    }
+}
