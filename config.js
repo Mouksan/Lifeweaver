@@ -69,8 +69,18 @@ export const UNIVERSE_PRESETS = {
     },
 };
 
-// Порядок вкладок вселенной в UI (фиксированный, custom всегда последним)
-export const UNIVERSE_ORDER = ['mpreg', 'omegaverse', 'dragon', 'merfolk', 'custom'];
+// Порядок встроенных вкладок вселенной в UI. Свои вселенные (до трёх) идут
+// после них, за ними — язычок «＋».
+export const UNIVERSE_ORDER = ['mpreg', 'omegaverse', 'dragon', 'merfolk'];
+
+// Постоянные id своих вселенных. Первый — старый 'custom': на него уже ссылаются
+// чаты, кладки и дети, начатые в единственном кастоме до появления трёх слотов.
+export const CUSTOM_IDS = ['custom', 'custom2', 'custom3'];
+export const MAX_CUSTOM_UNIVERSES = CUSTOM_IDS.length;
+
+export function isCustomUniverse(universeId) {
+    return CUSTOM_IDS.includes(universeId);
+}
 
 export const DEFAULT_UNIVERSE = 'mpreg';
 
@@ -113,7 +123,7 @@ export function getTotalWeeks(preset, pregnancyDuration) {
 export function buildCustomPreset(cp) {
     if (!cp) return UNIVERSE_PRESETS.mpreg;
     const preset = {
-        id: 'custom',
+        id: CUSTOM_IDS.includes(cp.id) ? cp.id : 'custom',
         label: cp.label || 'Кастом',
         sublabel: cp.sublabel || '',
         color: cp.color || '#5a5850',
@@ -217,8 +227,12 @@ export const defaultSettings = {
     // Возраст в днях, после которого ребёнок сам уходит в архив «вырос»
     // (как babyMaxAgeDays у вдохновителя). 0 — никогда не архивировать.
     childMaxAgeDays: 1825,
-    // Кастомная вселенная (5-й слот) — конструктор в разделе "Настройки".
-    // isConfigured: false — вкладка задизейблена, пока не сохранили хотя бы раз.
+    // Свои вселенные (до трёх): [{ id: 'custom' | 'custom2' | 'custom3', ...поля customPreset }].
+    // Создаются язычком «＋» у вкладок, правятся кнопкой на «Обзоре».
+    customPresets: [],
+    customPresetsMigrated: false,
+    // Старый единственный кастом — шаблон полей новой вселенной и источник
+    // разовой миграции в customPresets.
     customPreset: {
         isConfigured: false,
         label: 'Кастом',

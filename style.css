@@ -184,6 +184,30 @@
     opacity: 1;
 }
 
+/* Свои вселенные: до 3 вкладок + язычок «＋». Вкладок может стать восемь —
+   ряд прокручивается вбок, а не сжимает подписи. */
+.lw-universe-tabs {
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.lw-utab {
+    flex: 0 0 auto;
+}
+
+.lw-utab-add {
+    --lw-utab-color: var(--lw-accent);
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    padding: 9px 14px 10px;
+}
+
+.lw-utab-add i {
+    font-size: 0.95em;
+    line-height: 1.6;
+}
+
 .lw-utab-disabled {
     opacity: 0.5;
     border-style: dashed;
@@ -1622,7 +1646,7 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
 .lw-tt-line { width: 1px; height: 16px; background: var(--lw-border); margin: 0 auto; }
 
 .lw-ov-foot {
-    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
     margin-top: 16px; padding-top: 10px;
     border-top: 1px solid var(--lw-border);
     font-size: .73rem;
@@ -2117,4 +2141,10 @@ details.lw-ib[open] .lw-ib-chev { transform: rotate(180deg); }
         animation: none;
         will-change: auto;
     }
+}
+
+/* Кнопка «Изменить вселенную» в подвале «Обзора» своей вселенной */
+.lw-ov-foot .lw-edit-universe {
+    margin-left: auto;
+    font-size: 0.85rem;
 }

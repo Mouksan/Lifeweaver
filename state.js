@@ -12,7 +12,7 @@ import { extension_settings } from '../../../extensions.js';
 import { bucketFromHour, childAgeDays, MILESTONES, milestoneDay } from './baby-care.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { rollPlannedComplications, revealComplications, bodyPoolFor, treatComplications, rollTest, seededRandom, activeComplications, inheritedLooksList, postpartumState } from './health.js';
-import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset } from './config.js';
+import { extensionName, defaultSettings, defaultChatData, defaultCharacterData, defaultPregnancyData, getPreset, getTotalWeeks, rollOffspringCount, CONTRACEPTION_TYPES, buildCustomPreset, CUSTOM_IDS, MAX_CUSTOM_UNIVERSES, isCustomUniverse } from './config.js';
 
 function cloneDefault(value) {
     return (value && typeof value === 'object') ? structuredClone(value) : value;
@@ -318,10 +318,10 @@ export function setCanCarry(who, value) {
 
 export function getActivePreset() {
     const universeId = getActiveUniverse();
-    if (universeId === 'custom') {
-        const cp = getSettings().customPreset;
-        if (cp && cp.isConfigured) return buildCustomPreset(cp);
-        return getPreset('mpreg'); // защитный фолбэк — сюда не должны попасть, если UI не даёт выбрать невключённый кастом
+    if (isCustomUniverse(universeId)) {
+        const cp = findCustomPreset(universeId);
+        if (cp) return buildCustomPreset(cp);
+        return getPreset('mpreg'); // вселенную удалили — чат живёт как «Обычный»
     }
     return getPreset(universeId);
 }
@@ -645,18 +645,53 @@ export function setNumericSetting(key, value, min = 1) {
     return n;
 }
 
-// ── Кастомная вселенная (5-й слот) ──
-export function getCustomPresetDraft() {
-    return cloneDefault(getSettings().customPreset);
+// ── Свои вселенные (до трёх) ──
+
+// Список своих вселенных. Один раз переносит старый единственный кастом
+// (settings.customPreset) в слот №1 с тем же id 'custom'.
+export function getCustomPresets() {
+    const s = getSettings();
+    if (!Array.isArray(s.customPresets)) s.customPresets = [];
+    if (!s.customPresetsMigrated) {
+        if (s.customPreset?.isConfigured && !s.customPresets.some(cp => cp.id === 'custom')) {
+            const { isConfigured, ...fields } = cloneDefault(s.customPreset);
+            s.customPresets.unshift({ ...fields, id: 'custom' });
+        }
+        s.customPresetsMigrated = true;
+    }
+    s.customPresets = s.customPresets
+        .filter(cp => cp && CUSTOM_IDS.includes(cp.id))
+        .filter((cp, i, list) => list.findIndex(x => x.id === cp.id) === i)
+        .sort((a, b) => CUSTOM_IDS.indexOf(a.id) - CUSTOM_IDS.indexOf(b.id));
+    return s.customPresets;
 }
 
-// Сохраняет черновик из формы конструктора как активный кастомный пресет.
+export function findCustomPreset(id) {
+    return getCustomPresets().find(cp => cp.id === id) || null;
+}
+
+export function canAddCustomPreset() {
+    return getCustomPresets().length < MAX_CUSTOM_UNIVERSES;
+}
+
+// Черновик для редактора: существующая вселенная или чистый шаблон для новой.
+export function getCustomPresetDraft(id = null) {
+    const existing = id ? findCustomPreset(id) : null;
+    if (existing) return cloneDefault(existing);
+    const { isConfigured, ...template } = cloneDefault(defaultSettings.customPreset);
+    return { ...template, id: null, label: '' }; // пустое имя при сохранении станет «Кастом»
+}
+
+// Сохраняет черновик. Без id — новая вселенная в первом свободном слоте.
+// Возвращает id сохранённой вселенной (null, если слотов не осталось).
 // Валидация чисел (min 1 и т.п.) — внутри buildCustomPreset при чтении,
 // тут просто нормализуем структуру перед записью.
-export function saveCustomPreset(draft) {
-    const s = getSettings();
-    s.customPreset = {
-        isConfigured: true,
+export function saveCustomPreset(draft, id = null) {
+    const list = getCustomPresets();
+    const targetId = id && CUSTOM_IDS.includes(id) ? id : CUSTOM_IDS.find(cid => !list.some(cp => cp.id === cid));
+    if (!targetId) return null;
+    const preset = {
+        id: targetId,
         label: (draft.label || 'Кастом').trim() || 'Кастом',
         sublabel: (draft.sublabel || '').trim(),
         color: draft.color || '#5a5850',
@@ -684,12 +719,20 @@ export function saveCustomPreset(draft) {
             shellPrep: (draft.terms?.shellPrep || '').trim() || undefined,
         },
     };
+    const index = list.findIndex(cp => cp.id === targetId);
+    if (index >= 0) list[index] = preset;
+    else list.push(preset);
+    getCustomPresets(); // пересортировать по слотам
+    return targetId;
 }
 
-export function disableCustomPreset() {
+// Удаляет вселенную. Чаты, где она была выбрана, живут как «Обычный»
+// (getActivePreset / resolvePreset откатываются на mpreg); текущий чат
+// переключаем явно, чтобы вкладка не осталась висеть активной.
+export function deleteCustomPreset(id) {
     const s = getSettings();
-    if (s.customPreset) s.customPreset.isConfigured = false;
-    if (getActiveUniverse() === 'custom') setActiveUniverse('mpreg');
+    s.customPresets = getCustomPresets().filter(cp => cp.id !== id);
+    if (getActiveUniverse() === id) setActiveUniverse('mpreg');
 }
 
 // ═══════════════════════════════════════════

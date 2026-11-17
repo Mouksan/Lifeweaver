@@ -2,7 +2,7 @@
 // LIFEWEAVER — точка входа
 // ═══════════════════════════════════════════
 
-import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset, termsOf } from './config.js';
+import { extensionName, UNIVERSE_PRESETS, UNIVERSE_ORDER, SECTIONS, summarizePreset, getTotalWeeks, CONTRACEPTION_TYPES, buildCustomPreset, termsOf, isCustomUniverse } from './config.js';
 import {
     getSettings, getActiveUniverse, setActiveUniverse, resetChatIdCache,
     getCharacterData, setDesignation, setCycleDay, setCycleDayManual, getCycleStartGuess, getCycleSettings, carrierDisplayName,
@@ -10,7 +10,7 @@ import {
     applyLayClutch, currentStageMaxWeeks,
     completeBirth, getChildren, getGrownChildren, updateChildField, archiveChild, deleteChild, restoreChild,
     setContraception, setShowNotifications, setHiddenPregnancy, setNumericSetting,
-    getCustomPresetDraft, saveCustomPreset, disableCustomPreset, getRpDay, setRpDay,
+    getCustomPresetDraft, saveCustomPreset, deleteCustomPreset, getCustomPresets, findCustomPreset, canAddCustomPreset, getRpDay, setRpDay,
     applyMiscarriage, applyAbortion, getLastLoss, clearLastLoss, revealOffspringSex,
     blockRemaining, clearResurrectionBlocks, getTimeOfDay, setTimeOfDay, getRpTime, setRpTime, getTimeForCare,
     isTrying, setTrying, monthsTrying, conceptionStruggle, getFertilityAid, setFertilityAid, clearFertilityAid,
@@ -54,72 +54,73 @@ const extensionFolderPath = `scripts/extensions/${extensionName}`;
 
 let activeSection = 'overview';
 
-// Единая точка резолвинга пресета по id вселенной — учитывает кастом
-// (если настроен и включён), иначе безопасно откатывается на mpreg.
-// Используется везде, КРОМЕ рендера самих вкладок сверху (там нужен ещё
-// и disabled-статус кастома, см. renderUniverseTabs).
+// Единая точка резолвинга пресета по id вселенной — учитывает свои вселенные,
+// а удалённую безопасно откатывает на mpreg.
 function resolvePreset(universeId) {
-    if (universeId === 'custom') {
-        const cp = getSettings().customPreset;
-        if (cp && cp.isConfigured) return buildCustomPreset(cp);
-        return UNIVERSE_PRESETS.mpreg;
+    if (isCustomUniverse(universeId)) {
+        const cp = findCustomPreset(universeId);
+        return cp ? buildCustomPreset(cp) : UNIVERSE_PRESETS.mpreg;
     }
     return UNIVERSE_PRESETS[universeId] || UNIVERSE_PRESETS.mpreg;
+}
+
+// Редактор своей вселенной: null — закрыт; иначе { id: null (новая) | 'custom2'…, draft }.
+// Пока открыт, на месте «Обзора» показывается он, а не инфопанели.
+let customEditor = null;
+
+function openCustomEditor(id = null) {
+    customEditor = { id, draft: getCustomPresetDraft(id) };
+    activeSection = 'overview';
+    renderUniverseTabs();
+    renderSidebar();
+    renderContent();
+}
+
+function closeCustomEditor() {
+    if (!customEditor) return;
+    customEditor = null;
+    renderUniverseTabs();
+    renderContent();
 }
 
 // ─── Вкладки вселенной (верхний ряд) ───
 function renderUniverseTabs() {
     const $tabs = $('#lw_universe_tabs');
     const active = getActiveUniverse();
-    const customCfg = getSettings().customPreset;
     $tabs.empty();
 
-    for (const id of UNIVERSE_ORDER) {
-        let preset, disabled;
-        if (id === 'custom') {
-            if (customCfg && customCfg.isConfigured) {
-                preset = buildCustomPreset(customCfg);
-                disabled = false;
-            } else {
-                preset = UNIVERSE_PRESETS.custom; // статичная заглушка: label "Кастом", disabled: true
-                disabled = true;
-            }
-        } else {
-            preset = UNIVERSE_PRESETS[id];
-            disabled = false;
-        }
-
-        const isActive = id === active;
+    const ids = [...UNIVERSE_ORDER, ...getCustomPresets().map(cp => cp.id)];
+    for (const id of ids) {
+        const preset = resolvePreset(id);
+        const isActive = !(customEditor && !customEditor.id) && id === active;
         const $tab = $(`
-            <button type="button" class="lw-utab ${isActive ? 'lw-utab-active' : ''} ${disabled ? 'lw-utab-disabled' : ''}"
-                style="--lw-utab-color: ${preset.color}" role="tab" aria-selected="${isActive}"
-                ${disabled ? 'aria-disabled="true"' : ''}>
-                <span class="lw-utab-label">${preset.label}</span>
-                <span class="lw-utab-sub">${preset.sublabel}</span>
+            <button type="button" class="lw-utab ${isActive ? 'lw-utab-active' : ''}"
+                style="--lw-utab-color: ${preset.color}" role="tab" aria-selected="${isActive}">
+                <span class="lw-utab-label">${escapeHtml(preset.label)}</span>
+                <span class="lw-utab-sub">${escapeHtml(preset.sublabel || '')}</span>
             </button>
         `);
-        if (!disabled) {
-            $tab.on('click', () => {
-                setActiveUniverse(id);
-                saveSettings();
-                renderUniverseTabs();
-                renderContent();
-            });
-        } else {
-            $tab.on('click', () => flashDisabledNote());
-        }
+        $tab.on('click', () => {
+            customEditor = null;
+            setActiveUniverse(id);
+            saveSettings();
+            renderUniverseTabs();
+            renderContent();
+        });
         $tabs.append($tab);
     }
-}
 
-let disabledNoteTimer = null;
-function flashDisabledNote() {
-    const $tabs = $('#lw_universe_tabs');
-    $tabs.find('.lw-utab-note').remove();
-    const $note = $(`<div class="lw-utab-note">Настрой её в разделе «Настройки» → «Кастомная вселенная»</div>`);
-    $tabs.append($note);
-    clearTimeout(disabledNoteTimer);
-    disabledNoteTimer = setTimeout(() => $note.fadeOut(200, () => $note.remove()), 2600);
+    if (canAddCustomPreset()) {
+        const creating = Boolean(customEditor && !customEditor.id);
+        const $add = $(`
+            <button type="button" class="lw-utab lw-utab-add ${creating ? 'lw-utab-active' : ''}"
+                role="tab" aria-selected="${creating}" title="Своя вселенная" aria-label="Создать свою вселенную">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+        `);
+        $add.on('click', () => openCustomEditor(null));
+        $tabs.append($add);
+    }
 }
 
 // ─── Сайдбар с разделами ───
@@ -136,6 +137,8 @@ function renderSidebar() {
         `);
         $item.on('click', () => {
             activeSection = section.id;
+            customEditor = null;
+            renderUniverseTabs();
             renderSidebar();
             renderContent();
         });
@@ -172,7 +175,8 @@ function renderContent() {
     const preset = resolvePreset(universeId);
 
     if (activeSection === 'overview') {
-        renderOverviewSection(preset);
+        if (customEditor) renderCustomEditor();
+        else renderOverviewSection(preset);
         return;
     }
     if (activeSection === 'cycle') {
@@ -550,8 +554,13 @@ function renderOverviewSection(preset) {
         <div class="lw-ov-foot">
             <span class="lw-dim">День истории: ${getRpDay()}${getRpTime() ? ` · ${getRpTime()}` : ''}</span>
             <span class="lw-dim">${summarizePreset(preset)}</span>
+            ${isCustomUniverse(getActiveUniverse()) && findCustomPreset(getActiveUniverse())
+                ? '<button type="button" class="lw-btn lw-btn-muted lw-edit-universe"><i class="fa-solid fa-pen"></i> Изменить вселенную</button>'
+                : ''}
         </div>
     `);
+
+    $('.lw-edit-universe').on('click', () => openCustomEditor(getActiveUniverse()));
 
     $('.lw-edit-carrier').on('click', function (e) {
         e.stopPropagation();
@@ -1783,8 +1792,6 @@ function bindAppearanceEvents() {
 function renderSettingsSection() {
     const s = getSettings();
     const preset = resolvePreset(getActiveUniverse());
-    customDraft = getCustomPresetDraft();
-
     $('#lw_content').html(`
         <h2 class="lw-content-title">Настройки</h2>
 
@@ -1861,12 +1868,7 @@ function renderSettingsSection() {
                     <input type="number" class="lw-input" id="lw_setting_childMaxAgeDays" min="0" value="${s.childMaxAgeDays}">
                 </label>
             </div>
-            <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно, в конструкторе кастомной вселенной.</p>
-        </div>
-
-        <div class="lw-settings-group">
-            <h3 class="lw-content-subtitle">Кастомная вселенная</h3>
-            ${renderCustomPresetForm(customDraft)}
+            <p class="lw-placeholder-note">Фазы драконов/мерфолка (формирование → кладка/инкубация) настраиваются отдельно — в своей вселенной (язычок «＋» у вкладок наверху).</p>
         </div>
 
         <div class="lw-settings-group">
@@ -1965,21 +1967,20 @@ function escapeHtml(str) {
     ));
 }
 
-// ── Конструктор кастомной вселенной (5-й слот) ──
-let customDraft = null;
+// ── Конструктор своей вселенной (редактор на месте «Обзора») ──
 
 function renderCustomGestationFields(draft) {
     if (draft.gestationType === 'staged') {
         return `
             <div class="lw-custom-grid">
                 <label>Название фазы 1
-                    <input type="text" class="lw-input" id="lw_custom_stage1_label" value="${draft.stages?.first?.label ?? 'Формирование'}">
+                    <input type="text" class="lw-input" id="lw_custom_stage1_label" value="${escapeHtml(String(draft.stages?.first?.label ?? 'Формирование'))}">
                 </label>
                 <label>Недель (фаза 1)
                     <input type="number" class="lw-input" id="lw_custom_stage1_weeks" min="1" value="${draft.stages?.first?.weeks ?? 20}">
                 </label>
                 <label>Название фазы 2
-                    <input type="text" class="lw-input" id="lw_custom_stage2_label" value="${draft.stages?.second?.label ?? 'Кладка и инкубация'}">
+                    <input type="text" class="lw-input" id="lw_custom_stage2_label" value="${escapeHtml(String(draft.stages?.second?.label ?? 'Кладка и инкубация'))}">
                 </label>
                 <label>Недель (фаза 2)
                     <input type="number" class="lw-input" id="lw_custom_stage2_weeks" min="1" value="${draft.stages?.second?.weeks ?? 20}">
@@ -1996,16 +1997,28 @@ function renderCustomGestationFields(draft) {
     `;
 }
 
-function renderCustomPresetForm(draft) {
+function renderCustomEditor() {
+    const { id, draft } = customEditor;
+    $('#lw_content').html(`
+        <h2 class="lw-content-title">${id ? 'Своя вселенная' : 'Новая вселенная'}</h2>
+        <div class="lw-settings-group">
+            ${renderCustomPresetForm(draft, Boolean(id))}
+        </div>
+    `);
+    bindCustomPresetEvents();
+}
+
+function renderCustomPresetForm(draft, isExisting) {
+    const esc = (v) => escapeHtml(String(v ?? ''));
     return `
-        <p class="lw-placeholder-note">${draft.isConfigured ? 'Активна как 5-я вкладка вверху.' : 'Заполни поля и сохрани, чтобы включить 5-ю вкладку вселенной.'}</p>
+        <p class="lw-placeholder-note">${isExisting ? 'Правки сразу касаются всех чатов с этой вселенной.' : 'Заполни поля и сохрани — появится новая вкладка, и этот чат переключится на неё.'}</p>
 
         <div class="lw-custom-grid">
             <label>Название
-                <input type="text" class="lw-input" id="lw_custom_label" value="${draft.label || ''}" placeholder="Например: Осьминожки">
+                <input type="text" class="lw-input" id="lw_custom_label" value="${esc(draft.label)}" placeholder="Например: Осьминожки">
             </label>
             <label>Подпись (короткая)
-                <input type="text" class="lw-input" id="lw_custom_sublabel" value="${draft.sublabel || ''}" placeholder="Например: Сперматофор">
+                <input type="text" class="lw-input" id="lw_custom_sublabel" value="${esc(draft.sublabel)}" placeholder="Например: Сперматофор">
             </label>
             <label>Цвет метки
                 <input type="color" class="lw-input lw-color-input" id="lw_custom_color" value="${draft.color || '#5a5850'}">
@@ -2034,30 +2047,32 @@ function renderCustomPresetForm(draft) {
                 <input type="number" class="lw-input" id="lw_custom_offspring_max" min="1" value="${draft.offspringRange?.max ?? 1}">
             </label>
             <label>Название потомства в UI
-                <input type="text" class="lw-input" id="lw_custom_offspring_label" value="${draft.offspringLabel || ''}" placeholder="Например: Сперматофоров">
+                <input type="text" class="lw-input" id="lw_custom_offspring_label" value="${esc(draft.offspringLabel)}" placeholder="Например: Сперматофоров">
             </label>
         </div>
 
         <div class="lw-custom-grid" id="lw_custom_terms" style="${draft.gestationType === 'staged' ? '' : 'display:none;'}">
             <label>Потомство (мн.ч.)
-                <input type="text" class="lw-input" id="lw_custom_term_eggs" value="${draft.terms?.eggs || ''}" placeholder="яйца / икринки">
+                <input type="text" class="lw-input" id="lw_custom_term_eggs" value="${esc(draft.terms?.eggs)}" placeholder="яйца / икринки">
             </label>
             <label>Оболочка (им.п.)
-                <input type="text" class="lw-input" id="lw_custom_term_shell" value="${draft.terms?.shell || ''}" placeholder="скорлупа / оболочка">
+                <input type="text" class="lw-input" id="lw_custom_term_shell" value="${esc(draft.terms?.shell)}" placeholder="скорлупа / оболочка">
             </label>
             <label>Оболочка (предл.п.)
-                <input type="text" class="lw-input" id="lw_custom_term_shellPrep" value="${draft.terms?.shellPrep || ''}" placeholder="скорлупе / оболочке">
+                <input type="text" class="lw-input" id="lw_custom_term_shellPrep" value="${esc(draft.terms?.shellPrep)}" placeholder="скорлупе / оболочке">
             </label>
         </div>
 
         <div class="lw-child-actions" style="margin-top: 12px;">
-            <button type="button" class="lw-btn" id="lw_custom_save">Сохранить и включить</button>
-            ${draft.isConfigured ? `<button type="button" class="lw-btn lw-btn-muted" id="lw_custom_disable">Выключить кастом</button>` : ''}
+            <button type="button" class="lw-btn" id="lw_custom_save">Сохранить</button>
+            <button type="button" class="lw-btn lw-btn-muted" id="lw_custom_cancel">Отмена</button>
+            ${isExisting ? '<button type="button" class="lw-btn lw-btn-muted" id="lw_custom_delete">Удалить вселенную</button>' : ''}
         </div>
     `;
 }
 
 function readDraftFromForm() {
+    const customDraft = customEditor.draft;
     customDraft.label = $('#lw_custom_label').val();
     customDraft.sublabel = $('#lw_custom_sublabel').val();
     customDraft.color = $('#lw_custom_color').val();
@@ -2083,21 +2098,29 @@ function readDraftFromForm() {
 function bindCustomPresetEvents() {
     $('#lw_custom_gestationType').on('change', function () {
         readDraftFromForm();
-        $('#lw_custom_gestation_fields').html(renderCustomGestationFields(customDraft));
-        $('#lw_custom_terms').toggle(customDraft.gestationType === 'staged');
+        $('#lw_custom_gestation_fields').html(renderCustomGestationFields(customEditor.draft));
+        $('#lw_custom_terms').toggle(customEditor.draft.gestationType === 'staged');
     });
     $('#lw_custom_save').on('click', function () {
         readDraftFromForm();
-        saveCustomPreset(customDraft);
+        const savedId = saveCustomPreset(customEditor.draft, customEditor.id);
+        if (!savedId) return;
+        // Новую вселенную сразу включаем в этом чате — создают её обычно под него
+        if (!customEditor.id) setActiveUniverse(savedId);
         saveSettings();
-        customDraft = getCustomPresetDraft();
+        customEditor = null;
         renderUniverseTabs();
-        renderSettingsSection();
+        renderContent();
     });
-    $('#lw_custom_disable').on('click', function () {
-        disableCustomPreset();
+    $('#lw_custom_cancel').on('click', () => closeCustomEditor());
+    $('#lw_custom_delete').on('click', function () {
+        const id = customEditor?.id;
+        if (!id) return;
+        const name = findCustomPreset(id)?.label || 'эту вселенную';
+        if (!confirm(`Удалить «${name}»? Чаты с этой вселенной вернутся к «Обычному».`)) return;
+        deleteCustomPreset(id);
         saveSettings();
-        customDraft = getCustomPresetDraft();
+        customEditor = null;
         renderUniverseTabs();
         renderContent();
     });
@@ -2147,7 +2170,6 @@ function bindSettingsEvents() {
         });
     }
 
-    bindCustomPresetEvents();
     bindAppearanceEvents();
     bindAvatarEvents();
 
