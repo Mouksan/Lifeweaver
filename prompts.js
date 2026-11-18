@@ -24,6 +24,15 @@
 
 import { setExtensionPrompt, extension_prompt_types, extension_prompt_roles } from '../../../../script.js';
 import { extensionName, CONTRACEPTION_TYPES, termsOf } from './config.js';
+
+// Потомство в промпте — по-английски и с учётом числа. Русские подписи
+// вселенной («Детей», «Яиц») только для окна: в промпте они ломали падежи
+// («будущие детей») и намекали на нескольких, когда ребёнок один.
+function offspringWord(preset, count) {
+    const one = Number(count) === 1;
+    if (preset?.gestationType === 'staged') return one ? 'egg' : 'eggs';
+    return one ? 'baby' : 'babies';
+}
 import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase, daysSinceConception } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
@@ -93,7 +102,7 @@ function characterStatusContext(who, preset) {
         const stageLabel = preset.gestationType === 'staged'
             ? preset.stages.first.label
             : 'pregnant';
-        let b = `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${preset.offspringLabel.toLowerCase()}.\n`;
+        let b = `${name}: currently ${stageLabel.toLowerCase()}, ${pregnancy.weeks}/${stageMax} weeks, carrying ${pregnancy.offspringCount} ${offspringWord(preset, pregnancy.offspringCount)}.\n`;
 
         // Телесные признаки этого срока — то, ради чего беременность вообще
         // отыгрывается, а не просто числится в трекере.
@@ -134,7 +143,7 @@ function clutchesContext(preset) {
     for (const c of clutches) {
         const parent = c.parentWho === 'char' ? '{{char}}' : '{{user}}';
         const label = preset.gestationType === 'staged' ? preset.stages.second.label : 'incubation';
-        b += `• ${c.offspringCount} ${preset.offspringLabel.toLowerCase()} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
+        b += `• ${c.offspringCount} ${offspringWord(preset, c.offspringCount)} laid by ${parent} — ${label.toLowerCase()} ${c.weeks}/${c.totalWeeks} weeks.\n`;
         const pct = Math.round((c.weeks / Math.max(1, c.totalWeeks)) * 100);
         b += `  State of the clutch: ${getSymptoms('clutch', pct, c.weeks, termsOf(preset), true).join(', ')}.\n`;
         b += `  Advisable: ${getRecommendation('clutch', pct, termsOf(preset), true)}.\n`;
@@ -307,7 +316,7 @@ function clutchTagBlock(preset) {
         const ripe = mine.some(c => c.weeks >= Math.floor(c.totalWeeks * 0.85));
         const urgency = ripe ? ' — DUE NOW, they may crack open any moment' : '';
 
-        b += `If the ${preset.offspringLabel.toLowerCase()} laid by ${name} actually hatch THIS reply${urgency} (the young are out of the shell — not just twitching, cracking or stirring), add: <!-- [BIRTH${tagSuffix}] -->. Add it even if only the first one hatches — the rest can emerge over the following replies.\n`;
+        b += `If the eggs laid by ${name} actually hatch THIS reply${urgency} (the young are out of the shell — not just twitching, cracking or stirring), add: <!-- [BIRTH${tagSuffix}] -->. Add it even if only the first one hatches — the rest can emerge over the following replies.\n`;
         b += `If that clutch is instead destroyed or dies for good this reply (crushed, gone cold, confirmed dead), add: <!-- [MISCARRIAGE${tagSuffix}] --> (never together with the hatch tag).\n`;
     }
     return b;
@@ -402,7 +411,7 @@ function characterTagBlock(who, preset) {
         }
 
         if (preset.gestationType === 'staged') {
-            b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the ${preset.offspringLabel.toLowerCase()} come out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
+            b += `If ${name} actually lays/spawns the clutch THIS reply${urgency} (the clutch comes out — not just contractions or the urge), add: <!-- [LAY_CLUTCH${tagSuffix}] -->\n`;
         } else {
             const verb = preset.gestationType === 'staged' ? 'hatch' : 'are born';
             b += `If the offspring actually ${verb} THIS reply${urgency} (out and separate — not just labor or contractions), add: <!-- [BIRTH${tagSuffix}] --> — this single short tag is what matters most; never skip it because a longer optional tag felt like too much.\n`;
@@ -493,7 +502,7 @@ export function buildPrompt() {
 
     // ── Контекст: только для понимания сцены, НЕ для повторения обратно ──
     let prompt = `=== LIFEWEAVER TRACKER — context only, do NOT repeat these lines back in any form (not as prose, not as a comment) ===\n`;
-    prompt += `Active setting: ${preset.label}. Call the offspring "${preset.offspringLabel.toLowerCase()}" specifically in narration, not a generic/different word.\n`;
+    prompt += `Active setting: ${preset.label}. Name the offspring naturally in the narration's own language and grammar, matching the actual count (one child — singular).\n`;
     prompt += universeContext(preset);
     prompt += characterStatusContext('user', preset);
     prompt += characterStatusContext('char', preset);
