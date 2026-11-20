@@ -33,7 +33,7 @@ function offspringWord(preset, count) {
     if (preset?.gestationType === 'staged') return one ? 'egg' : 'eggs';
     return one ? 'baby' : 'babies';
 }
-import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase, daysSinceConception } from './state.js';
+import { getSettings, getActivePreset, getCharacterData, currentStageMaxWeeks, getCycleSettings, getLastLoss, getChildren, isPregnancyObvious, getChildrenMissingTraits, getChildrenMissingNames, getTimeOfDay, getRpDay, getRpTime, getTimeForCare, getClutches, isTrying, monthsTrying, conceptionStruggle, getFertilityAid, getHealthHolders, predictTest, getPostpartum, getDynamic, getChildDynamic, getCyclePhase, daysSinceConception, getChatData } from './state.js';
 import { getHeatPhase, getRutPhase } from './cycle.js';
 import { activeComplications, TEST_LABELS, bodyPoolFor } from './health.js';
 import { getSymptoms, getRecommendation, getCycleState, getPregnancySymptoms, isTooEarlyForSymptoms } from './symptoms.js';
@@ -92,6 +92,42 @@ function universeContext(preset) {
 }
 
 // ─── Контекст: текущий статус персонажа (просто предложение, не заголовок в скобках) ───
+// ─── Тело беременного: фон, а не задание ───
+// Раньше каждый ответ модель получала весь набор симптомов недели с приказом
+// «вплети» — и вплетала все, каждый раз («привкус меди окончательно пропал»
+// весь день). Теперь тело в промпте раз в BODY_EVERY ответов бота, плюс
+// первый ответ после смены недели, и только ОДИН симптом за раз, по очереди.
+const BODY_EVERY = 3;
+
+function botReplyCount() {
+    try {
+        const chat = SillyTavern.getContext().chat || [];
+        return chat.filter(m => m && !m.is_user && !m.is_system).length;
+    } catch {
+        return 0;
+    }
+}
+
+/**
+ * Показать ли тело в промпте для СЛЕДУЮЩЕГО ответа бота. Вставка пересобирается
+ * после каждого ответа (и при правках), поэтому решаем по номеру будущего
+ * ответа: одинаковое состояние → одинаковое решение, сколько раз ни собирай.
+ * Новая неделя запоминается вместе с числом ответов на тот момент — тело
+ * держится в промпте до следующего ответа (и на его свайпах), потом расписание.
+ */
+function shouldShowBody(who, weeks) {
+    const replies = botReplyCount();
+    const data = getChatData();
+    if (!data.bodyWeekSeen || typeof data.bodyWeekSeen !== 'object') data.bodyWeekSeen = {};
+    const seen = data.bodyWeekSeen[who];
+    if (!seen || seen.week !== weeks) {
+        data.bodyWeekSeen[who] = { week: weeks, replies };
+        return true;
+    }
+    if (seen.replies === replies) return true;
+    return (replies + 1) % BODY_EVERY === 0;
+}
+
 function characterStatusContext(who, preset) {
     const character = getCharacterData(who);
     const name = who === 'char' ? '{{char}}' : '{{user}}';
@@ -114,13 +150,19 @@ function characterStatusContext(who, preset) {
             // Первые дни: тело ещё ничего не замечает — так и говорим модели,
             // иначе она сама дорисует тошноту «для атмосферы».
             b += `  Body right now: too early for any pregnancy symptoms — ${name}'s body feels completely normal. Do not hint at the pregnancy through the body yet.\n`;
-        } else {
+        } else if (shouldShowBody(who, pregnancy.weeks)) {
             const symptoms = getPregnancySymptoms(pool, { weeks: pregnancy.weeks, days, stageMax }, termsOf(preset), true);
-            b += hidden
-                ? `  Body right now (${name} does not connect these to a pregnancy yet): ${symptoms.join(', ')}.\n`
-                : `  Body right now: ${symptoms.join(', ')}. Weave these in physically; do not list them.\n`;
+            // Один симптом за раз, по очереди — нечего перечислять.
+            const one = symptoms.length ? symptoms[botReplyCount() % symptoms.length] : '';
+            const soft = 'optional background flavour, not a task: touch it only if it fits the moment, most replies should not mention the body at all. '
+                + 'Never narrate a sensation fading, passing or "finally gone", and do not repeat a sensation already described in recent replies.';
+            if (one) {
+                b += hidden
+                    ? `  Body (${name} does not connect this to a pregnancy yet) — ${one}. This is ${soft}\n`
+                    : `  Body — ${one}. This is ${soft}\n`;
+            }
+            b += `  Advisable at this stage: ${getRecommendation(pool, pct, termsOf(preset), true)}.\n`;
         }
-        b += `  Advisable at this stage: ${getRecommendation(pool, pct, termsOf(preset), true)}.\n`;
         return b;
     }
     if (character.canCarry) {
